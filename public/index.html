@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Real-time Redis-powered quiz game leaderboard dashboard with live score updates and player rankings." />
+  <title>QuizArena — Live Leaderboard</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ── Background decoration ─────────────────────────────────── -->
+  <div class="bg-orb orb-1" aria-hidden="true"></div>
+  <div class="bg-orb orb-2" aria-hidden="true"></div>
+  <div class="bg-orb orb-3" aria-hidden="true"></div>
+
+  <!-- ── Top Navigation ────────────────────────────────────────── -->
+  <header class="topbar" role="banner">
+    <div class="topbar-inner">
+      <div class="logo" aria-label="QuizArena">
+        <span class="logo-icon" aria-hidden="true">⚡</span>
+        <span class="logo-text">Quiz<span class="logo-accent">Arena</span></span>
+      </div>
+
+      <nav class="topbar-nav" aria-label="Dashboard sections">
+        <button id="tab-leaderboard" class="nav-tab active" data-tab="leaderboard" aria-selected="true">🏆 Leaderboard</button>
+        <button id="tab-game"        class="nav-tab"        data-tab="game"        aria-selected="false">🎮 Game Control</button>
+        <button id="tab-sessions"    class="nav-tab"        data-tab="sessions"    aria-selected="false">🔐 Sessions</button>
+        <button id="tab-events"      class="nav-tab"        data-tab="events"      aria-selected="false">📡 Live Events</button>
+      </nav>
+
+      <div class="topbar-status" id="sse-status" aria-live="polite">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-label">Connecting…</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Main Content ───────────────────────────────────────────── -->
+  <main class="main" role="main">
+
+    <!-- ┌─ Tab: Leaderboard ──────────────────────────────────────┐ -->
+    <section id="section-leaderboard" class="tab-section" aria-label="Leaderboard">
+
+      <div class="section-header">
+        <div>
+          <h1 class="section-title">Global Leaderboard</h1>
+          <p class="section-sub">Real-time rankings powered by Redis Sorted Sets</p>
+        </div>
+        <div class="header-actions">
+          <label for="top-count-select" class="sr-only">Show top N players</label>
+          <select id="top-count-select" class="select-input" aria-label="Number of players to show">
+            <option value="10">Top 10</option>
+            <option value="20">Top 20</option>
+            <option value="50">Top 50</option>
+          </select>
+          <button id="btn-refresh-lb" class="btn btn-secondary" aria-label="Refresh leaderboard">
+            <span class="btn-icon">↺</span> Refresh
+          </button>
+          <button id="btn-seed" class="btn btn-accent" aria-label="Seed demo data">
+            🌱 Seed Demo Data
+          </button>
+        </div>
+      </div>
+
+      <!-- Score submission form -->
+      <div class="card glass-card score-form-card" id="score-form-card" aria-label="Submit player score">
+        <h2 class="card-title">⬆️ Submit Score</h2>
+        <form id="score-form" class="inline-form" novalidate>
+          <div class="form-group">
+            <label for="score-player-id">Player ID</label>
+            <input type="text" id="score-player-id" placeholder="e.g. player-alpha" required autocomplete="off" />
+          </div>
+          <div class="form-group">
+            <label for="score-points">Points</label>
+            <input type="number" id="score-points" placeholder="50" min="1" required />
+          </div>
+          <button type="submit" class="btn btn-primary">Submit Score</button>
+        </form>
+        <p id="score-form-result" class="form-result" aria-live="polite"></p>
+      </div>
+
+      <!-- Player lookup -->
+      <div class="card glass-card player-lookup-card" aria-label="Look up player rank">
+        <h2 class="card-title">🔍 Player Rank Lookup</h2>
+        <form id="player-lookup-form" class="inline-form" novalidate>
+          <div class="form-group">
+            <label for="lookup-player-id">Player ID</label>
+            <input type="text" id="lookup-player-id" placeholder="e.g. player-alpha" required autocomplete="off" />
+          </div>
+          <button type="submit" class="btn btn-primary">Look Up</button>
+        </form>
+        <div id="player-lookup-result" class="player-stats" aria-live="polite"></div>
+      </div>
+
+      <!-- Leaderboard table -->
+      <div class="card glass-card leaderboard-card" aria-label="Top players table">
+        <div class="card-header">
+          <h2 class="card-title">🏅 Rankings</h2>
+          <span class="badge" id="lb-count-badge">—</span>
+        </div>
+        <div class="table-wrap" role="region" aria-label="Leaderboard table" tabindex="0">
+          <table class="leaderboard-table" id="leaderboard-table">
+            <thead>
+              <tr>
+                <th scope="col">Rank</th>
+                <th scope="col">Player</th>
+                <th scope="col">Score</th>
+                <th scope="col">Bar</th>
+              </tr>
+            </thead>
+            <tbody id="leaderboard-body">
+              <tr><td colspan="4" class="empty-state">Loading leaderboard…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+    <!-- └────────────────────────────────────────────────────────┘ -->
+
+    <!-- ┌─ Tab: Game Control ─────────────────────────────────────┐ -->
+    <section id="section-game" class="tab-section hidden" aria-label="Game Control">
+
+      <div class="section-header">
+        <div>
+          <h1 class="section-title">🎮 Game Control</h1>
+          <p class="section-sub">Manage rounds and submit answers atomically via Lua</p>
+        </div>
+      </div>
+
+      <div class="two-col">
+
+        <!-- Create Round -->
+        <div class="card glass-card" aria-label="Create game round">
+          <h2 class="card-title">➕ Create Round</h2>
+          <form id="round-form" novalidate>
+            <div class="form-group">
+              <label for="round-game-id">Game ID</label>
+              <input type="text" id="round-game-id" placeholder="game-1" required autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label for="round-id">Round ID</label>
+              <input type="text" id="round-id" placeholder="round-1" required autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label for="round-answer">Correct Answer</label>
+              <input type="text" id="round-answer" placeholder="Paris" required autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label for="round-duration">Duration (seconds)</label>
+              <input type="number" id="round-duration" value="300" min="1" required />
+            </div>
+            <button type="submit" class="btn btn-primary full-width">Create Round</button>
+          </form>
+          <p id="round-result" class="form-result" aria-live="polite"></p>
+        </div>
+
+        <!-- Submit Answer -->
+        <div class="card glass-card" aria-label="Submit quiz answer">
+          <h2 class="card-title">✍️ Submit Answer</h2>
+          <form id="answer-form" novalidate>
+            <div class="form-group">
+              <label for="ans-game-id">Game ID</label>
+              <input type="text" id="ans-game-id" placeholder="game-1" required autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label for="ans-round-id">Round ID</label>
+              <input type="text" id="ans-round-id" placeholder="round-1" required autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label for="ans-player-id">Player ID</label>
+              <input type="text" id="ans-player-id" placeholder="player-alpha" required autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label for="ans-answer">Answer</label>
+              <input type="text" id="ans-answer" placeholder="Paris" required autocomplete="off" />
+            </div>
+            <button type="submit" class="btn btn-primary full-width">Submit Answer</button>
+          </form>
+          <p id="answer-result" class="form-result" aria-live="polite"></p>
+        </div>
+      </div>
+    </section>
+    <!-- └────────────────────────────────────────────────────────┘ -->
+
+    <!-- ┌─ Tab: Sessions ─────────────────────────────────────────┐ -->
+    <section id="section-sessions" class="tab-section hidden" aria-label="Session Management">
+
+      <div class="section-header">
+        <div>
+          <h1 class="section-title">🔐 Session Management</h1>
+          <p class="section-sub">Redis Hash-backed sessions with 30-min sliding TTL</p>
+        </div>
+      </div>
+
+      <div class="two-col">
+
+        <!-- Create Session -->
+        <div class="card glass-card" aria-label="Create session">
+          <h2 class="card-title">🆕 Create Session</h2>
+          <form id="session-create-form" novalidate>
+            <div class="form-group">
+              <label for="sess-user-id">User ID</label>
+              <input type="text" id="sess-user-id" placeholder="user-42" required autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label for="sess-ip">IP Address</label>
+              <input type="text" id="sess-ip" placeholder="192.168.1.1" required autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label for="sess-device">Device Type</label>
+              <select id="sess-device" class="select-input full-width">
+                <option value="desktop">desktop</option>
+                <option value="mobile">mobile</option>
+                <option value="tablet">tablet</option>
+              </select>
+            </div>
+            <button type="submit" class="btn btn-primary full-width">Create Session</button>
+          </form>
+          <p id="session-create-result" class="form-result" aria-live="polite"></p>
+        </div>
+
+        <!-- Look Up Sessions -->
+        <div class="card glass-card" aria-label="Look up user sessions">
+          <h2 class="card-title">🔎 User Sessions</h2>
+          <form id="session-lookup-form" novalidate>
+            <div class="form-group">
+              <label for="sess-lookup-id">User ID</label>
+              <input type="text" id="sess-lookup-id" placeholder="user-42" required autocomplete="off" />
+            </div>
+            <button type="submit" class="btn btn-primary full-width">Fetch Sessions</button>
+          </form>
+          <div id="sessions-list" class="sessions-list" aria-live="polite"></div>
+        </div>
+      </div>
+    </section>
+    <!-- └────────────────────────────────────────────────────────┘ -->
+
+    <!-- ┌─ Tab: Live Events ──────────────────────────────────────┐ -->
+    <section id="section-events" class="tab-section hidden" aria-label="Live Event Feed">
+
+      <div class="section-header">
+        <div>
+          <h1 class="section-title">📡 Live Event Feed</h1>
+          <p class="section-sub">Server-Sent Events from Redis Pub/Sub — zero polling</p>
+        </div>
+        <button id="btn-clear-events" class="btn btn-secondary" aria-label="Clear event feed">
+          🗑️ Clear Feed
+        </button>
+      </div>
+
+      <div class="card glass-card events-card" aria-label="Incoming events log">
+        <div class="events-header">
+          <span class="events-label">Events</span>
+          <span class="badge pulse" id="event-count-badge" aria-live="polite">0</span>
+        </div>
+        <div id="events-feed" class="events-feed" role="log" aria-live="polite" aria-relevant="additions">
+          <div class="event-placeholder">
+            <span class="placeholder-icon" aria-hidden="true">📭</span>
+            <p>Waiting for events… Submit a score or answer to see real-time updates here.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+    <!-- └────────────────────────────────────────────────────────┘ -->
+
+  </main>
+
+  <!-- ── Toast notifications ────────────────────────────────────── -->
+  <div id="toast-container" class="toast-container" aria-live="assertive" role="alert"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
