@@ -1,386 +1,698 @@
-# QuizArena — Redis-Powered Game Leaderboard
+<div align="center">
 
-A high-performance, production-ready backend for a real-time quiz game platform. Demonstrates advanced Redis data structures, atomic Lua scripting, Pub/Sub messaging, and Server-Sent Events for live browser updates.
+<img src="https://readme-typing-svg.demolab.com?font=Fira+Code&size=32&duration=2800&pause=2000&color=7C3AED&center=true&vCenter=true&width=940&lines=⚡+QuizArena+%7C+Redis-Powered+Game+Leaderboard;Real-Time+%7C+Atomic+%7C+Production-Ready" alt="Typing SVG" />
 
-[![Docker](https://img.shields.io/badge/Docker-ready-blue?logo=docker)](https://docker.com)
-[![Redis](https://img.shields.io/badge/Redis-7.x-red?logo=redis)](https://redis.io)
-[![Node.js](https://img.shields.io/badge/Node.js-20-green?logo=node.js)](https://nodejs.org)
+<br/>
+
+[![Redis](https://img.shields.io/badge/Redis-7.x-DC382D?style=for-the-badge&logo=redis&logoColor=white)](https://redis.io)
+[![Node.js](https://img.shields.io/badge/Node.js-20_LTS-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org)
+[![Express.js](https://img.shields.io/badge/Express.js-4.x-000000?style=for-the-badge&logo=express&logoColor=white)](https://expressjs.com)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://docker.com)
+[![License](https://img.shields.io/badge/License-MIT-7C3AED?style=for-the-badge)](LICENSE)
+
+<br/>
+
+> **A high-performance, production-ready backend for a real-time competitive quiz game.**  
+> Powered by advanced Redis data structures, atomic Lua scripts, and live Server-Sent Events.
+
+<br/>
+
+[🚀 Quick Start](#-quick-start) · [📐 Architecture](#-system-architecture) · [📡 API Reference](#-api-reference) · [🔬 Lua Scripts](#-lua-scripts--atomicity) · [🧪 Testing](#-testing--verification)
 
 ---
 
-## Table of Contents
+</div>
 
-- [Architecture Overview](#architecture-overview)
-- [Redis Key Schema](#redis-key-schema)
-- [Quick Start](#quick-start)
-- [API Reference](#api-reference)
-- [Lua Scripts — Deep Dive](#lua-scripts--deep-dive)
-- [Real-Time Events (SSE)](#real-time-events-sse)
-- [Environment Variables](#environment-variables)
-- [Project Structure](#project-structure)
+## 📋 Table of Contents
+
+- [✨ Project Overview](#-project-overview)
+- [🛠 Tech Stack](#-tech-stack)
+- [📁 Folder Structure](#-folder-structure)
+- [📐 System Architecture](#-system-architecture)
+- [🔄 Execution Flow](#-execution-flow)
+- [🗃️ Redis Key Schema](#️-redis-key-schema)
+- [🚀 Quick Start](#-quick-start)
+- [⚙️ Configuration](#️-configuration)
+- [📡 API Reference](#-api-reference)
+- [🔬 Lua Scripts & Atomicity](#-lua-scripts--atomicity)
+- [📡 Real-Time Events (SSE)](#-real-time-events-sse)
+- [🎮 Frontend Dashboard](#-frontend-dashboard)
+- [🧪 Testing & Verification](#-testing--verification)
+- [📊 Memory Analysis](#-memory-analysis)
 
 ---
 
-## Architecture Overview
+## ✨ Project Overview
 
-```
-Browser (Dashboard)
-    │
-    ├─ REST API calls (login, submit answer, leaderboard)
-    └─ GET /api/events ─────► SSE (Server-Sent Events)
-                                      │
-                                      ▼
-                          ┌───────────────────────┐
-                          │    Express API Server  │
-                          │                        │
-                          │  publisher (ioredis) ──┼──► HSET/ZADD/EVAL
-                          │  subscriber (ioredis) ◄┼──── SUBSCRIBE
-                          └───────────┬────────────┘
-                                      │  PUBLISH / SUBSCRIBE
-                                      ▼
-                          ┌───────────────────────┐
-                          │       Redis 7          │
-                          │                        │
-                          │  Hashes   → sessions   │
-                          │  Sorted Sets → LB      │
-                          │  Sets     → index/subs │
-                          │  Pub/Sub  → events     │
-                          └───────────────────────┘
-```
+**QuizArena** is a backend infrastructure for a competitive, real-time quiz game platform. It demonstrates how Redis — far beyond a simple cache — can serve as a powerful, low-latency data structure server for gaming applications.
 
-### Key Design Decisions
+<div align="center">
 
-| Decision | Rationale |
+| Feature | Implementation |
 |---|---|
-| Two Redis connections | A connection enters dedicated Pub/Sub mode after `SUBSCRIBE`. Regular commands cannot be issued on it, so a separate `publisher` connection handles all HSET/ZADD/EVAL work |
-| SSE fan-out pattern | One shared Redis subscriber fans out to all connected SSE clients in-process. Avoids N Redis connections for N browser tabs |
-| Lua for multi-step atomicity | Race conditions are eliminated by executing read-modify-write sequences as a single atomic Redis script, not as separate round-trips |
-| ZINCRBY for scores | Sorted Set increment is itself atomic — no Lua needed for simple score additions |
-| Pipeline for leaderboard queries | Rank lookups use `publisher.pipeline()` to batch ZSCORE + ZREVRANK + ZCARD into a single network round-trip |
+| 🏆 **Real-Time Leaderboard** | Redis Sorted Sets (ZINCRBY, ZREVRANGE) |
+| 🔐 **Session Management** | Redis Hashes with sliding 30-min TTL |
+| ⚡ **Atomic Game Logic** | Lua scripts via EVAL |
+| 📡 **Live Score Updates** | Redis Pub/Sub → Server-Sent Events |
+| 🛡️ **Race Condition Safety** | Lua atomicity eliminates all TOCTOU bugs |
+| 🐳 **One-Command Deploy** | Docker Compose |
+
+</div>
 
 ---
 
-## Redis Key Schema
+## 🛠 Tech Stack
 
-| Data Type | Key Pattern | Example | Description |
+<div align="center">
+
+| Layer | Technology | Purpose |
+|---|---|---|
+| **Runtime** | Node.js 20 LTS | Async I/O, excellent Redis ecosystem |
+| **Framework** | Express.js 4.x | REST API + SSE endpoints |
+| **Redis Client** | ioredis 5.x | Pipelines, Lua EVAL, Pub/Sub |
+| **Database** | Redis 7 (Alpine) | In-memory data structures |
+| **Containerization** | Docker + Compose | Reproducible single-command environment |
+| **Frontend** | Vanilla HTML/CSS/JS | Zero-dependency live dashboard |
+| **ID Generation** | uuid v4 | Cryptographically random session IDs |
+
+</div>
+
+### Why Redis over a Relational DB?
+
+```
+Relational DB query path:
+  Client → Network → DB Server → Disk I/O → Parse SQL → Lock rows → Return → Network
+  Typical latency: 5–50ms per query
+
+Redis operation path:
+  Client → Network → In-memory data structure → Return
+  Typical latency: 0.1–1ms per operation
+```
+
+For a leaderboard with 1M players, `ZREVRANK` runs in **O(log N)** — roughly 20 comparisons — regardless of data size.
+
+---
+
+## 📁 Folder Structure
+
+```
+AtomicRank/
+│
+├── 📄 docker-compose.yml          # Orchestrates api + redis services
+├── 📄 Dockerfile                  # Multi-stage Node.js 20 Alpine build
+├── 📄 .env.example                # Environment variable template
+├── 📄 .gitignore                  # Excludes .env, node_modules
+├── 📄 package.json                # Dependencies and scripts
+├── 📄 submission.json             # Evaluator configuration
+├── 📄 MEMORY_ANALYSIS.md          # Redis memory encoding analysis
+├── 📄 README.md                   # This file
+├── 📄 architecture.md             # System architecture documentation
+├── 📄 projectdocumentation.md     # Full project documentation
+│
+├── 📂 src/
+│   ├── 📄 index.js                # Express app entry point + /health
+│   │
+│   ├── 📂 config/
+│   │   └── 📄 redis.js            # Publisher + Subscriber Redis clients
+│   │
+│   ├── 📂 routes/
+│   │   ├── 📄 sessions.js         # POST /api/sessions
+│   │   ├── 📄 leaderboard.js      # Score submission + leaderboard queries
+│   │   ├── 📄 game.js             # POST /api/game/submit (Lua)
+│   │   ├── 📄 events.js           # GET /api/events (SSE)
+│   │   └── 📄 admin.js            # Admin session management
+│   │
+│   ├── 📂 scripts/
+│   │   ├── 📄 invalidate_sessions.lua   # Atomic session cleanup
+│   │   └── 📄 submit_answer.lua         # Atomic game answer processing
+│   │
+│   ├── 📂 middleware/
+│   │   └── 📄 errorHandler.js     # Centralised error handling
+│   │
+│   └── 📄 seed.js                 # Data seeding utility
+│
+└── 📂 public/
+    ├── 📄 index.html              # Dashboard SPA entry point
+    ├── 📄 style.css               # Dark glassmorphism design system
+    └── 📄 app.js                  # Frontend application logic
+```
+
+---
+
+## 📐 System Architecture
+
+### High-Level Overview
+
+```mermaid
+graph TB
+    subgraph Browser["🌐 Browser Client"]
+        Dashboard["📊 Dashboard SPA<br/>(Vanilla JS)"]
+    end
+
+    subgraph API["🖥️ API Server (Express.js)"]
+        Health["/health"]
+        Sessions["/api/sessions"]
+        Leaderboard["/api/leaderboard"]
+        Game["/api/game/submit"]
+        Events["/api/events · SSE"]
+        Admin["/api/admin"]
+    end
+
+    subgraph Redis["🔴 Redis 7"]
+        Hashes["📦 Hashes<br/>session:{id}"]
+        SortedSets["📈 Sorted Sets<br/>leaderboard:global"]
+        Sets["🔗 Sets<br/>user_sessions:{userId}<br/>submissions:{gameId}:{roundId}"]
+        PubSub["📡 Pub/Sub<br/>game-events channel"]
+    end
+
+    Dashboard -->|REST API calls| API
+    Dashboard -->|SSE connection| Events
+    Sessions -->|HSET + EVAL Lua| Hashes
+    Sessions -->|SADD| Sets
+    Leaderboard -->|ZINCRBY| SortedSets
+    Leaderboard -->|PUBLISH| PubSub
+    Game -->|EVAL Lua| SortedSets
+    Game -->|EVAL Lua| Sets
+    Admin -->|HGETALL + DEL| Hashes
+    Events -->|SUBSCRIBE| PubSub
+    PubSub -->|Fan-out| Events
+
+    style Browser fill:#1a1d2e,stroke:#7c3aed,color:#e8eaf0
+    style API fill:#0f1219,stroke:#06b6d4,color:#e8eaf0
+    style Redis fill:#1a0a0a,stroke:#DC382D,color:#e8eaf0
+```
+
+### Two-Connection Redis Pattern
+
+```mermaid
+graph LR
+    subgraph App["Express App"]
+        Routes["API Routes"]
+        SSE["SSE Handler"]
+    end
+
+    subgraph Redis["Redis Server"]
+        Commands["Command Processing"]
+        Channel["game-events channel"]
+    end
+
+    Publisher["publisher<br/>(ioredis)"]
+    Subscriber["subscriber<br/>(ioredis)"]
+
+    Routes -->|HSET, ZINCRBY,<br/>EVAL, PUBLISH| Publisher
+    Publisher --> Commands
+    Publisher -->|PUBLISH| Channel
+
+    Channel -->|message| Subscriber
+    Subscriber -->|fan-out| SSE
+    SSE -->|text/event-stream| Clients["Browser Clients (N)"]
+
+    style Publisher fill:#7c3aed,color:white
+    style Subscriber fill:#06b6d4,color:white
+    style Channel fill:#DC382D,color:white
+```
+
+> **Why two connections?**  
+> Once `SUBSCRIBE` is called on an ioredis connection, it enters dedicated Pub/Sub mode and cannot process regular commands. The `publisher` handles all read/write commands; the `subscriber` handles all incoming Pub/Sub messages.
+
+---
+
+## 🔄 Execution Flow
+
+### Session Creation Flow
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant API as Express API
+    participant Lua as Redis Lua VM
+    participant R as Redis
+
+    C->>API: POST /api/sessions<br/>{userId, ipAddress, deviceType}
+    API->>Lua: EVAL invalidate_sessions.lua<br/>KEYS[1] = user_sessions:{userId}
+    Lua->>R: SMEMBERS user_sessions:{userId}
+    R-->>Lua: [sid1, sid2, ...]
+    Lua->>R: DEL session:sid1
+    Lua->>R: DEL session:sid2
+    Lua->>R: DEL user_sessions:{userId}
+    Lua-->>API: {count: 2 deleted}
+    API->>R: HSET session:{newId} {userId, ip, device, timestamps}
+    API->>R: EXPIRE session:{newId} 1800
+    API->>R: SADD user_sessions:{userId} {newId}
+    API-->>C: 201 { sessionId: newId }
+```
+
+### Score Submission & Live Update Flow
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant API as Express API
+    participant R as Redis
+    participant Sub as SSE Subscriber
+    participant B as Browser (SSE)
+
+    C->>API: POST /api/leaderboard/scores<br/>{playerId, points}
+    API->>R: ZINCRBY leaderboard:global {points} {playerId}
+    R-->>API: newScore (e.g. 75)
+    API->>R: PUBLISH game-events<br/>{"event":"leaderboard_updated","data":{...}}
+    API-->>C: 200 { playerId, newScore: 75 }
+
+    R-->>Sub: message on game-events
+    Sub->>B: event: leaderboard_updated\ndata: {"playerId":"...","newScore":75}\n\n
+    Note over B: Dashboard auto-refreshes leaderboard
+```
+
+### Atomic Game Answer Flow
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant API as Express API
+    participant Lua as Redis Lua VM
+    participant R as Redis
+
+    C->>API: POST /api/game/submit<br/>{gameId, roundId, playerId, answer}
+    API->>Lua: EVAL submit_answer.lua<br/>KEYS[1..3], ARGV[1..4]
+
+    Lua->>R: HGET game_round:{g}:{r} endTime
+    R-->>Lua: endTime value
+
+    alt currentTime > endTime
+        Lua-->>API: [-1, "ROUND_EXPIRED"]
+        API-->>C: 403 { code: "ROUND_EXPIRED" }
+    else Round active
+        Lua->>R: SISMEMBER submissions:{g}:{r} {playerId}
+        R-->>Lua: 0 or 1
+
+        alt Already submitted
+            Lua-->>API: [-2, "DUPLICATE_SUBMISSION"]
+            API-->>C: 400 { code: "DUPLICATE_SUBMISSION" }
+        else First submission
+            Lua->>R: SADD submissions:{g}:{r} {playerId}
+            Lua->>R: HGET game_round:{g}:{r} correctAnswer
+            R-->>Lua: correctAnswer
+
+            alt Correct answer
+                Lua->>R: ZINCRBY leaderboard:global 10 {playerId}
+                R-->>Lua: newScore
+            else Wrong answer
+                Lua->>R: ZSCORE leaderboard:global {playerId}
+                R-->>Lua: currentScore
+            end
+
+            Lua-->>API: [0, newScore]
+            API-->>C: 200 { status: "SUCCESS", newScore }
+        end
+    end
+```
+
+---
+
+## 🗃️ Redis Key Schema
+
+```mermaid
+erDiagram
+    SESSION_HASH {
+        string userId
+        string createdAt
+        string lastActive
+        string ipAddress
+        string deviceType
+    }
+
+    USER_SESSIONS_SET {
+        string sessionId_1
+        string sessionId_2
+    }
+
+    LEADERBOARD_SORTED_SET {
+        float score
+        string playerId
+    }
+
+    GAME_ROUND_HASH {
+        string gameId
+        string roundId
+        string correctAnswer
+        string endTime
+        string createdAt
+    }
+
+    SUBMISSIONS_SET {
+        string playerId_1
+        string playerId_2
+    }
+
+    SESSION_HASH ||--o{ USER_SESSIONS_SET : "indexed by"
+    LEADERBOARD_SORTED_SET ||--o{ SUBMISSIONS_SET : "players tracked by"
+    GAME_ROUND_HASH ||--|| SUBMISSIONS_SET : "has"
+```
+
+| Key Pattern | Redis Type | TTL | Description |
 |---|---|---|---|
-| Hash | `session:{sessionId}` | `session:uuid-123` | Per-session data (userId, IP, device, timestamps) |
-| Set | `user_sessions:{userId}` | `user_sessions:42` | All active session IDs for a user |
-| Sorted Set | `leaderboard:global` | `leaderboard:global` | All players ranked by total score |
-| Sorted Set | `leaderboard:game:{gameId}` | `leaderboard:game:g-1` | Per-game leaderboard |
-| Hash | `game_round:{gameId}:{roundId}` | `game_round:g-1:r-3` | Round metadata (endTime, correctAnswer) |
-| Set | `submissions:{gameId}:{roundId}` | `submissions:g-1:r-3` | Players who have already submitted |
+| `session:{sessionId}` | Hash | 1800s | Per-session data |
+| `user_sessions:{userId}` | Set | None | Index of active sessions |
+| `leaderboard:global` | Sorted Set | None | All player scores |
+| `leaderboard:game:{gameId}` | Sorted Set | None | Per-game scores |
+| `game_round:{gameId}:{roundId}` | Hash | 3600s after end | Round metadata |
+| `submissions:{gameId}:{roundId}` | Set | Inherits | Submitted player IDs |
 
 ---
 
-## Quick Start
+## 🚀 Quick Start
 
 ### Prerequisites
+
 - Docker ≥ 24.x
 - Docker Compose ≥ 2.x
 
-### 1. Clone and configure
+### 1. Clone the Repository
 
 ```bash
-git clone <your-repo-url>
-cd GPP-13
-cp .env.example .env
+git clone https://github.com/ramalokeshreddyp/AtomicRank.git
+cd AtomicRank
 ```
 
-### 2. Start all services
+### 2. Configure Environment
+
+```bash
+cp .env.example .env
+# Edit .env if needed (defaults work out of the box)
+```
+
+### 3. Start All Services
 
 ```bash
 docker-compose up --build
 ```
 
-All containers will be healthy within ~60 seconds. You'll see:
+That's it. The system self-starts, performs health checks, and is ready in ~30 seconds.
 
 ```
-quiz_redis  | Ready to accept connections
+quiz_redis  | Ready to accept connections tcp
 quiz_api    | [Redis Publisher] Ready
+quiz_api    | [Redis Subscriber] Ready
 quiz_api    | [API] Server listening on port 3000
+quiz_api    | [API] Dashboard: http://localhost:3000/
 ```
 
-### 3. Open the dashboard
-
-Navigate to **http://localhost:3000** in your browser.
-
-### 4. Verify health
+### 4. Verify Health
 
 ```bash
 curl http://localhost:3000/health
-# → {"status":"OK","redis":"connected"}
+# → { "status": "OK", "redis": "connected" }
 ```
+
+### 5. Open the Dashboard
+
+Navigate to **http://localhost:3000** in your browser.
 
 ---
 
-## API Reference
+## ⚙️ Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `REDIS_URL` | `redis://redis:6379` | Redis connection string |
+| `API_PORT` | `3000` | HTTP server port |
+| `NODE_ENV` | `production` | Node environment |
+| `SESSION_TTL` | `1800` | Session TTL in seconds |
+| `CORRECT_ANSWER_POINTS` | `10` | Points for a correct quiz answer |
+
+---
+
+## 📡 API Reference
 
 ### Session Management
 
-#### `POST /api/sessions` — Create session
-```json
-// Request
-{ "userId": "user-42", "ipAddress": "192.168.1.1", "deviceType": "desktop" }
+```http
+POST /api/sessions
+Content-Type: application/json
 
-// Response 201
+{
+  "userId": "user-42",
+  "ipAddress": "192.168.1.1",
+  "deviceType": "desktop"
+}
+
+# Response 201
 { "sessionId": "550e8400-e29b-41d4-a716-446655440000" }
 ```
-Old sessions for the same `userId` are **atomically invalidated** via Lua before the new one is created.
+
+> ⚡ **Atomically invalidates** all existing sessions for the same `userId` via Lua before creating the new one.
 
 ---
 
 ### Leaderboard
 
-#### `POST /api/leaderboard/scores` — Submit score
-```json
-// Request
+```http
+POST /api/leaderboard/scores
 { "playerId": "player-alpha", "points": 50 }
+# → 200 { "playerId": "player-alpha", "newScore": 75 }
 
-// Response 200
-{ "playerId": "player-alpha", "newScore": 75 }
-```
+GET /api/leaderboard/top/10
+# → [ { "rank": 1, "playerId": "...", "score": 500 }, ... ]
 
-#### `GET /api/leaderboard/top/:count` — Top N players
-```json
-[
-  { "rank": 1, "playerId": "player-alpha", "score": 500 },
-  { "rank": 2, "playerId": "player-beta",  "score": 480 }
-]
-```
-
-#### `GET /api/leaderboard/player/:playerId` — Player rank + context
-```json
-{
-  "playerId": "player-alpha",
-  "score": 500,
-  "rank": 1,
-  "percentile": 98.5,
-  "nearbyPlayers": {
-    "above": [],
-    "below": [{ "rank": 2, "playerId": "player-beta", "score": 480 }]
-  }
-}
+GET /api/leaderboard/player/player-alpha
+# → { "playerId": "...", "score": 75, "rank": 2, "percentile": 94.3,
+#     "nearbyPlayers": { "above": [...], "below": [...] } }
 ```
 
 ---
 
 ### Game
 
-#### `POST /api/game/rounds` — Create a round (seed/test helper)
-```json
-{ "gameId": "game-1", "roundId": "round-1", "correctAnswer": "Paris", "durationSeconds": 300 }
-```
+```http
+POST /api/game/rounds
+{ "gameId": "g1", "roundId": "r1", "correctAnswer": "Paris", "durationSeconds": 300 }
 
-#### `POST /api/game/submit` — Submit answer (atomic Lua)
-```json
-// Request
-{ "gameId": "game-1", "roundId": "round-1", "playerId": "player-alpha", "answer": "Paris" }
-
-// Success 200
-{ "status": "SUCCESS", "newScore": 510 }
-
-// Duplicate 400
-{ "status": "ERROR", "code": "DUPLICATE_SUBMISSION" }
-
-// Expired 403
-{ "status": "ERROR", "code": "ROUND_EXPIRED" }
+POST /api/game/submit
+{ "gameId": "g1", "roundId": "r1", "playerId": "player-alpha", "answer": "Paris" }
+# Success  → 200 { "status": "SUCCESS", "newScore": 85 }
+# Duplicate→ 400 { "status": "ERROR", "code": "DUPLICATE_SUBMISSION" }
+# Expired  → 403 { "status": "ERROR", "code": "ROUND_EXPIRED" }
 ```
 
 ---
 
-### SSE
+### SSE — Real-Time Events
 
-#### `GET /api/events` — Real-time event stream
-```
-Content-Type: text/event-stream
+```http
+GET /api/events
+Accept: text/event-stream
 
+# Events received:
 event: connected
 data: {"message":"SSE stream connected"}
 
 event: leaderboard_updated
-data: {"playerId":"player-alpha","newScore":510}
+data: {"playerId":"player-alpha","newScore":75}
+
+event: score_updated
+data: {"playerId":"player-alpha","newScore":85,"gameId":"g1","roundId":"r1"}
 ```
 
 ---
 
 ### Admin
 
-#### `GET /api/admin/sessions/user/:userId`
-```json
-[
-  { "sessionId": "abc-123", "ipAddress": "1.2.3.4", "lastActive": "2026-05-05T...", "deviceType": "desktop" }
-]
+```http
+GET  /api/admin/sessions/user/{userId}   → [ { sessionId, ipAddress, lastActive, deviceType } ]
+DELETE /api/admin/sessions/{sessionId}   → 204 No Content
 ```
-
-#### `DELETE /api/admin/sessions/:sessionId` → `204 No Content`
 
 ---
 
-## Lua Scripts — Deep Dive
+## 🔬 Lua Scripts & Atomicity
 
-### Why Lua Scripts?
+### The Core Problem: Race Conditions
 
-Redis is single-threaded but handles many concurrent clients. Without atomicity, a **race condition** can corrupt data:
+Without atomicity, concurrent requests create dangerous gaps:
 
 ```
-Client A reads sessions for user-42: [sid1, sid2]
-Client B reads sessions for user-42: [sid1, sid2]
-Client A deletes sid1, sid2
-Client B deletes sid1, sid2  ← double-delete, no problem here
-Client A creates sid3, adds to set
-Client B creates sid4, adds to set
-→ user-42 now has TWO active sessions — WRONG!
+Thread A: SMEMBERS user_sessions → [sid1, sid2]   ← reads old sessions
+Thread B: SMEMBERS user_sessions → [sid1, sid2]   ← reads same set (gap!)
+Thread A: DEL session:sid1, DEL session:sid2        ← cleans up
+Thread A: SADD user_sessions sid3                  ← adds new session
+Thread B: SADD user_sessions sid4                  ← BUG: two active sessions!
 ```
 
-A Lua script sent via `EVAL` is executed **atomically on the Redis server**. No other command can interleave while the script runs, making the entire read-modify-write sequence indivisible.
+### The Solution: EVAL Atomicity
 
----
+Redis executes Lua scripts in a single atomic block. No other command can interleave.
 
 ### `invalidate_sessions.lua`
 
-**Purpose:** Before creating a new session, atomically delete all existing sessions for a user.
-
 ```lua
-local userSessionsKey = KEYS[1]   -- user_sessions:{userId}
-
-local sessions = redis.call('SMEMBERS', userSessionsKey)
-local count = #sessions
-
+local sessions = redis.call('SMEMBERS', KEYS[1])
 for _, sid in ipairs(sessions) do
-  redis.call('DEL', 'session:' .. sid)
+  redis.call('DEL', 'session:' .. sid)    -- delete each session hash
 end
-
-if count > 0 then
-  redis.call('DEL', userSessionsKey)
+if #sessions > 0 then
+  redis.call('DEL', KEYS[1])             -- clear the index set
 end
-
-return count
+return #sessions
 ```
 
-**Why one EVAL beats multiple commands:**
-Without Lua, you'd need: `SMEMBERS` → loop `DEL` → `DEL`. Each call is a separate network round-trip, and between any two of them, another `POST /api/sessions` for the same user could partially overlap, leading to phantom sessions that never get cleaned up.
+**Guarantees:** Reading sessions + deleting them + clearing the index is one indivisible operation.
 
-**Inputs:**
-- `KEYS[1]` = `user_sessions:{userId}`
+### `submit_answer.lua` — 6 Redis Commands, 1 Atomic Block
 
-**Returns:** number of sessions invalidated.
+```mermaid
+flowchart TD
+    A([EVAL submit_answer.lua]) --> B{HGET endTime}
+    B -->|not found| C[return -3 ROUND_NOT_FOUND]
+    B -->|found| D{currentTime > endTime?}
+    D -->|yes| E[return -1 ROUND_EXPIRED]
+    D -->|no| F{SISMEMBER submissions playerId}
+    F -->|1 = already submitted| G[return -2 DUPLICATE_SUBMISSION]
+    F -->|0 = first submission| H[SADD submissions playerId]
+    H --> I{HGET correctAnswer == answer?}
+    I -->|correct| J[ZINCRBY leaderboard +10 playerId]
+    I -->|wrong| K[ZSCORE leaderboard playerId]
+    J --> L[return 0, newScore]
+    K --> L
+
+    style A fill:#7c3aed,color:white
+    style C fill:#ef4444,color:white
+    style E fill:#ef4444,color:white
+    style G fill:#ef4444,color:white
+    style L fill:#10b981,color:white
+```
 
 ---
 
-### `submit_answer.lua`
+## 📡 Real-Time Events (SSE)
 
-**Purpose:** Atomically process a quiz answer — check round validity, prevent duplicates, and conditionally award points.
+### SSE Fan-Out Architecture
 
-```lua
--- Guard 1: Round must exist
-local endTime = redis.call('HGET', KEYS[1], 'endTime')
-if not endTime then return { -3, 'ROUND_NOT_FOUND' } end
+```mermaid
+graph LR
+    Score["POST /api/leaderboard/scores"]
+    -->|PUBLISH game-events| Redis[("Redis\nPub/Sub")]
 
--- Guard 2: Round must still be active
-if tonumber(ARGV[3]) > tonumber(endTime) then
-  return { -1, 'ROUND_EXPIRED' }
-end
+    Redis -->|message| SharedSub["Shared SSE Subscriber\n(1 Redis connection)"]
 
--- Guard 3: No duplicate submission
-local alreadySubmitted = redis.call('SISMEMBER', KEYS[2], ARGV[1])
-if alreadySubmitted == 1 then
-  return { -2, 'DUPLICATE_SUBMISSION' }
-end
+    SharedSub -->|write| C1["Browser 1"]
+    SharedSub -->|write| C2["Browser 2"]
+    SharedSub -->|write| C3["Browser 3 ... N"]
 
--- Record submission
-redis.call('SADD', KEYS[2], ARGV[1])
-
--- Award points if correct
-local correctAnswer = redis.call('HGET', KEYS[1], 'correctAnswer')
-if correctAnswer == ARGV[2] then
-  return { 0, redis.call('ZINCRBY', KEYS[3], ARGV[4], ARGV[1]) }
-else
-  return { 0, redis.call('ZSCORE', KEYS[3], ARGV[1]) or '0' }
-end
+    style SharedSub fill:#06b6d4,color:white
+    style Redis fill:#DC382D,color:white
 ```
 
-**Why this must be atomic:**
-
-Consider two players submitting simultaneously. Without atomicity:
-
-```
-Player A checks SISMEMBER → 0 (not submitted)
-Player B checks SISMEMBER → 0 (not submitted)  ← squeezed in between
-Player A calls SADD + ZINCRBY → gets points
-Player B calls SADD + ZINCRBY → ALSO gets points ← BUG: double scoring!
-```
-
-The Lua script collapses all six Redis commands into a single indivisible operation. Redis's single-threaded command processor serialises EVAL execution — Player B's script cannot start until Player A's is fully complete.
-
-**Inputs:**
-- `KEYS[1]` = `game_round:{gameId}:{roundId}`
-- `KEYS[2]` = `submissions:{gameId}:{roundId}`
-- `KEYS[3]` = `leaderboard:global`
-- `ARGV[1]` = `playerId`
-- `ARGV[2]` = `answer`
-- `ARGV[3]` = current timestamp in ms
-- `ARGV[4]` = points for correct answer
-
-**Returns:** `[statusCode, payload]` — the API layer maps codes to HTTP responses.
+**Key design:** One shared Redis subscriber feeds unlimited browser clients. This avoids **N Redis connections for N browser tabs**.
 
 ---
 
-## Real-Time Events (SSE)
+## 🎮 Frontend Dashboard
 
-The SSE pipeline works as follows:
+The dashboard is a fully interactive single-page application:
 
-1. **Client connects** to `GET /api/events`
-2. Server adds the response object to a `Set<Response>` (fan-out registry)
-3. The **single shared Redis subscriber** is subscribed to `game-events` channel
-4. When a score is updated, the leaderboard route calls `PUBLISH game-events {...}`
-5. The subscriber receives the message and **fans it out** to all entries in the registry
-6. Each response object has `.write()` called with the SSE-formatted string
-
-This means **N browser tabs = 1 Redis subscriber connection**, regardless of concurrency.
+| Tab | Features |
+|---|---|
+| 🏆 **Leaderboard** | Live-updating table, score bars, seed demo data, submit scores |
+| 🎮 **Game Control** | Create rounds, submit answers, see real-time results |
+| 🔐 **Sessions** | Create and manage user sessions, revoke individual sessions |
+| 📡 **Live Events** | Real-time SSE event feed with auto-refresh |
 
 ---
 
-## Environment Variables
+## 🧪 Testing & Verification
 
-| Variable | Default | Required | Description |
-|---|---|---|---|
-| `REDIS_URL` | `redis://redis:6379` | Yes | Redis connection string |
-| `API_PORT` | `3000` | Yes | HTTP server port |
-| `NODE_ENV` | `production` | No | Node environment |
-| `SESSION_TTL` | `1800` | No | Session TTL in seconds |
-| `CORRECT_ANSWER_POINTS` | `10` | No | Points awarded for correct answer |
+### Full End-to-End Verification
+
+```bash
+# Run all tests against live containers
+BASE="http://localhost:3000"
+
+# Health
+curl $BASE/health
+
+# Create session (Lua invalidation)
+curl -X POST $BASE/api/sessions \
+  -H "Content-Type: application/json" \
+  -d '{"userId":"user-1","ipAddress":"1.1.1.1","deviceType":"desktop"}'
+
+# Submit score
+curl -X POST $BASE/api/leaderboard/scores \
+  -H "Content-Type: application/json" \
+  -d '{"playerId":"player-alpha","points":50}'
+
+# Top 10
+curl $BASE/api/leaderboard/top/10
+
+# Player rank
+curl $BASE/api/leaderboard/player/player-alpha
+
+# Create game round
+curl -X POST $BASE/api/game/rounds \
+  -H "Content-Type: application/json" \
+  -d '{"gameId":"g1","roundId":"r1","correctAnswer":"Redis","durationSeconds":300}'
+
+# Submit answer
+curl -X POST $BASE/api/game/submit \
+  -H "Content-Type: application/json" \
+  -d '{"gameId":"g1","roundId":"r1","playerId":"player-alpha","answer":"Redis"}'
+
+# SSE stream (keep alive, submit score in another terminal to see event)
+curl -N $BASE/api/events
+```
+
+### Redis State Inspection
+
+```bash
+# Connect to Redis inside Docker
+docker-compose exec redis redis-cli
+
+# Check session hash
+HGETALL session:{sessionId}
+
+# Check TTL
+TTL session:{sessionId}
+
+# Check leaderboard
+ZREVRANGE leaderboard:global 0 9 WITHSCORES
+
+# Check player rank
+ZREVRANK leaderboard:global player-alpha
+
+# Check memory
+MEMORY USAGE leaderboard:global
+OBJECT ENCODING leaderboard:global
+```
+
+### Seed Data
+
+```bash
+# Seed 35 players + game rounds
+docker-compose exec api node src/seed.js
+```
 
 ---
 
-## Project Structure
+## 📊 Memory Analysis
 
-```
-GPP-13/
-├── docker-compose.yml          # Orchestrates api + redis
-├── Dockerfile                  # Multi-stage Node.js image
-├── .env.example                # Environment variable docs
-├── submission.json             # Evaluator config
-├── MEMORY_ANALYSIS.md          # Redis memory findings
-├── README.md                   # This file
-├── package.json
-├── src/
-│   ├── index.js                # Express entry + /health
-│   ├── config/
-│   │   └── redis.js            # Publisher + Subscriber clients
-│   ├── routes/
-│   │   ├── sessions.js         # POST /api/sessions
-│   │   ├── leaderboard.js      # Score + ranking endpoints
-│   │   ├── game.js             # Answer submission (Lua)
-│   │   ├── events.js           # SSE endpoint
-│   │   └── admin.js            # Admin session management
-│   ├── scripts/
-│   │   ├── invalidate_sessions.lua
-│   │   └── submit_answer.lua
-│   └── middleware/
-│       └── errorHandler.js
-└── public/
-    ├── index.html              # Dashboard SPA
-    ├── style.css               # Dark glassmorphism design
-    └── app.js                  # Frontend application
-```
+From `MEMORY_ANALYSIS.md`:
+
+| Structure | Encoding | Memory |
+|---|---|---|
+| Session Hash (5 fields) | `ziplist` | ~280 bytes |
+| Leaderboard (50 players) | `ziplist` | ~3.2 KB |
+| Leaderboard (50 players, forced skiplist) | `skiplist` | ~8.1 KB |
+| Leaderboard (100,000 players) | `skiplist` | ~19.4 MB |
+
+**Takeaway:** A leaderboard with 1 million players fits in under **200 MB** of Redis memory.
+
+---
+
+<div align="center">
+
+### Built with ⚡ by [ramalokeshreddyp](https://github.com/ramalokeshreddyp)
+
+[![GitHub](https://img.shields.io/badge/GitHub-ramalokeshreddyp-7C3AED?style=for-the-badge&logo=github)](https://github.com/ramalokeshreddyp/AtomicRank)
+
+*QuizArena — Where every millisecond counts.*
+
+</div>
